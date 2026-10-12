@@ -59,6 +59,7 @@ def test_register_codex_replaces_its_existing_entry(tmp_path, monkeypatch):
         calls.append((command, kwargs))
         return subprocess.CompletedProcess(command, 0)
 
+    monkeypatch.setattr(install.shutil, "which", lambda name: f"/bin/{name}")
     monkeypatch.setattr(install.subprocess, "run", fake_run)
     install.register_codex(tmp_path / "python", local_address="off", interface="en0")
     assert calls[0][0] == ["codex", "mcp", "remove", "marketplaces-ru-readonly"]
