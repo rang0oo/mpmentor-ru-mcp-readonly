@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import stat
 import subprocess
 import sys
 import tempfile
@@ -17,6 +18,8 @@ DEFAULT_ARCHIVE = (
 
 
 def safe_member(name: str) -> bool:
+    if not name or any(char in name for char in ('\\', ':', '\x00')):
+        return False
     path = PurePosixPath(name)
     return not path.is_absolute() and ".." not in path.parts
 
@@ -29,9 +32,14 @@ def main() -> None:
         print("Downloading the read-only marketplace integration…")
         urllib.request.urlretrieve(archive_url, archive)
         with zipfile.ZipFile(archive) as package:
-            unsafe = [item.filename for item in package.infolist() if not safe_member(item.filename)]
+            members = package.infolist()
+            unsafe = [item.filename for item in members
+                      if not safe_member(item.filename)
+                      or stat.S_ISLNK(item.external_attr >> 16)]
             if unsafe:
                 raise RuntimeError("The downloaded archive contains unsafe paths")
+            if len(members) > 5000 or sum(item.file_size for item in members) > 128 * 1024 * 1024:
+                raise RuntimeError('The downloaded archive exceeds the installation size limit')
             package.extractall(temp_path / "source")
         installers = list((temp_path / "source").glob("*/install.py"))
         if len(installers) != 1:

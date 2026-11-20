@@ -205,6 +205,18 @@ def write_install_record(*, app_dir: Path, network_mode: str, interface: str) ->
     return record
 
 
+def install_rnp_skill(client: str) -> Path:
+    """Install the product report command into the selected client's skills."""
+    base = (Path.home() / ".agents" if client == "codex"
+            else Path.home() / ".claude")
+    source = HERE / "readonly_mcp" / "skills" / "product-rnp" / "SKILL.md"
+    target = base / "skills" / "product-rnp" / "SKILL.md"
+    if source.resolve() != target.resolve():
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(source, target)
+    return target
+
+
 def main() -> None:
     if sys.version_info < (3, 10):
         raise SystemExit("Python 3.10+ is required")
@@ -226,6 +238,7 @@ def main() -> None:
     for client in clients:
         register = register_codex if client == "codex" else register_claude_code
         register(python, local_address=args.direct_network, interface=args.interface)
+        install_rnp_skill(client)
     saved = [] if args.skip_keys else configure_credentials()
     record = write_install_record(
         app_dir=app, network_mode=args.direct_network, interface=args.interface

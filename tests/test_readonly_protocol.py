@@ -23,8 +23,17 @@ def test_stdio_protocol_lists_only_read_tools(monkeypatch, tmp_path):
         async with stdio_client(params) as (read, write):
             async with ClientSession(read, write) as session:
                 await session.initialize()
-                names = {tool.name for tool in (await session.list_tools()).tools}
-                assert len(names) == 45
+                tools = {tool.name: tool for tool in (await session.list_tools()).tools}
+                names = set(tools)
+                assert len(names) == 50
+                report = tools["get_product_rnp"]
+                assert report.annotations.readOnlyHint
+                uri = report.meta["ui"]["resourceUri"]
+                resource = (await session.read_resource(uri)).contents[0]
+                assert resource.mimeType == "text/html;profile=mcp-app"
+                assert "ui/notifications/tool-result" in resource.text
+                rnp = await session.call_tool("get_product_rnp", {"market": "wb", "end_date": "2026-10-31"})
+                assert rnp.structuredContent["markets"]["WB"]["status"] == "unavailable"
                 assert "wb_get_fbs_stocks" in names
                 assert "wb_write_method" not in names
                 result = await session.call_tool("wb_list_sections", {})

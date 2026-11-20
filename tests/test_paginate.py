@@ -59,6 +59,19 @@ def test_offset_stops_on_empty_page():
     assert out["total_fetched"] == 30
 
 
+def test_missing_array_is_not_reported_as_empty_complete_data():
+    out = asyncio.run(fetch_all(_FakeClient(lambda loc: {'unexpected': []}), _offset_spec()))
+    assert out['ok'] is False
+
+
+def test_repeated_cursor_is_incomplete_when_total_is_not_reached():
+    spec = EndpointSpec(operation_id='op', method='POST', host='h', path='/x',
+                        pagination='cursor', items_path='items')
+    out = asyncio.run(fetch_all(_FakeClient(lambda loc: {
+        'items': [1], 'cursor': 'stuck', 'total': 100}), spec))
+    assert out['truncated'] is True
+
+
 def test_cursor_nonnumeric_total_does_not_crash():
     spec = EndpointSpec(operation_id="op", method="POST", host="h", path="/x",
                         pagination="cursor", items_path="items")

@@ -5,7 +5,7 @@ machine-friendly ones so an agent can ask for "all" rows without hand-rolling
 loops. Anything exotic can still be paged manually via the generic executor.
 
 Supported styles (EndpointSpec.pagination):
-- offset          : limit/offset (in body for POST, query for GET); stop on short page
+- offset          : limit/offset (in body for POST, query for GET); stop on empty page
 - last_id         : Ozon — body filter, response result.last_id
 - cursor          : Ozon v4/v5 — top-level "cursor" token + "total"
 - page            : body page/page_size, response result.page_count
@@ -116,7 +116,10 @@ async def fetch_all(
         page_items = _dig(data, ipath)
         if page_items is None and isinstance(data, list):
             page_items = data
-        page_items = page_items or []
+        if not isinstance(page_items, list):
+            return make_error('unknown', 'Expected item array is missing or invalid; completeness is unknown',
+                              operation_id=spec.operation_id,
+                              details={'pages_fetched': pages, 'items_fetched': len(items)})
         items.extend(page_items)
         pages += 1
 
@@ -138,12 +141,12 @@ async def fetch_all(
             if total is not None and len(items) >= total:
                 return _result(items, pages, truncated=False)
             if not cur or cur == seen_cursor:
-                return _result(items, pages, truncated=False)
+                return _result(items, pages, truncated=bool(cur) or (total is not None and len(items) < total))
             seen_cursor = cur
         elif style == "last_id":
             last_id = _dig(data, "result.last_id") or _dig(data, "last_id")
             if not last_id or last_id == seen_cursor:
-                return _result(items, pages, truncated=False)
+                return _result(items, pages, truncated=bool(last_id))
             seen_cursor = last_id
         elif style == "page":
             page_count = _to_int(_dig(data, "result.page_count") or _dig(data, "page_count"))
@@ -153,7 +156,7 @@ async def fetch_all(
             last = page_items[-1]
             lcd = last.get("lastChangeDate") if isinstance(last, dict) else None
             if not lcd or lcd == seen_cursor:
-                return _result(items, pages, truncated=False)
+                return _result(items, pages, truncated=True)
             seen_cursor = lcd
             query["dateFrom"] = lcd
         elif style == "page_query":
@@ -163,7 +166,7 @@ async def fetch_all(
         elif style == "page_token":
             nxt = _dig(data, "result.paging.nextPageToken") or _dig(data, "paging.nextPageToken")
             if not nxt or nxt == seen_cursor:
-                return _result(items, pages, truncated=False)
+                return _result(items, pages, truncated=bool(nxt))
             seen_cursor = nxt
         else:  # none / unsupported -> single page
             return _result(items, pages, truncated=False)

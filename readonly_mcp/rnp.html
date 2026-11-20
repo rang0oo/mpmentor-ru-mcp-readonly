@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="ru">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>РНП по товарам</title>
+<style>
+:root{color-scheme:light dark;font:14px system-ui;--muted:light-dark(#5b6067,#b4bac2);--line:light-dark(#dde1e6,#42464e);--active:light-dark(#20252b,#edf0f5);--active-ink:light-dark(#fff,#20252b)}
+body{margin:0;padding:.75rem;display:grid;gap:.65rem}h1,p{margin:0}h1{font-size:1.25rem}p,small{color:var(--muted)}#markets{display:flex;gap:.4rem}button{font:inherit;color:inherit;border:1px solid var(--line);background:transparent;border-radius:.65rem;padding:.4rem .7rem;cursor:pointer}button[aria-pressed=true]{background:var(--active);color:var(--active-ink)}
+table{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums}th,td{text-align:right;border-bottom:1px solid var(--line);padding:.45rem .3rem;vertical-align:top}th:first-child,td:first-child{text-align:left;overflow-wrap:anywhere}td:not(:first-child){white-space:nowrap}thead{color:var(--muted)}th{font-weight:550}td small{display:block}#more{justify-self:start}[hidden]{display:none}
+@media(max-width:350px){body{padding:.35rem}th,td{padding-inline:.2rem}}
+</style>
+<h1>РНП по товарам</h1>
+<p id="period" role="status">Загрузка отчёта…</p>
+<div id="markets" role="group" aria-label="Площадка" hidden></div>
+<p id="message" hidden></p>
+<table id="report" hidden>
+<thead><tr><th scope="col">Товар</th><th scope="col">Шт.</th><th scope="col">Заказы, ₽</th><th scope="col">Динамика</th></tr></thead>
+<tbody></tbody>
+</table>
+<button id="more" type="button" hidden></button>
+<script>
+(() => {
+  const $ = id => document.getElementById(id);
+  const host = window.parent;
+  const fmt = new Intl.NumberFormat("ru-RU",{maximumFractionDigits:1});
+  const rub = new Intl.NumberFormat("ru-RU",{maximumFractionDigits:2});
+  const date = s => s.split("-").reverse().join(".");
+  const emit = (method, params, id) => host.postMessage({jsonrpc:"2.0",method,params,id},"*");
+  let data, market, shown = 8;
+  function render() {
+    const result = data.markets[market];
+    $("period").textContent = date(data.start)+"–"+date(data.end)+" · к "+date(data.previous_start)+"–"+date(data.previous_end);
+    const nav = $("markets");
+    nav.replaceChildren();
+    nav.hidden = Object.keys(data.markets).length < 2;
+    for (const name of Object.keys(data.markets)) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.textContent = name === "WB" ? "Wildberries" : name;
+      button.setAttribute("aria-pressed",String(name===market));
+      button.onclick = () => {
+        market=name;
+        shown=8;
+        render();
+        nav.querySelector("[aria-pressed=true]").focus();
+      };
+      nav.append(button);
+    }
+    const body = $("report").tBodies[0];
+    body.replaceChildren();
+    const message = $("message");
+    $("report").hidden = !result.rows.length;
+    message.hidden = !!result.rows.length;
+    message.textContent = result.status === "ok" ? "Заказов по этому фильтру за оба периода нет." : result.message;
+    for (const item of result.rows.slice(0,shown)) {
+      const row = body.insertRow();
+      const title = row.insertCell();
+      title.textContent = item.name;
+      const sku = document.createElement("small");
+      sku.textContent = (item.article ? item.article+" · " : "")+"SKU "+item.sku;
+      title.append(sku);
+      row.insertCell().textContent = fmt.format(item.units);
+      row.insertCell().textContent = rub.format(item.ordered_rub);
+      const delta = row.insertCell();
+      delta.textContent = item.change_pct == null ? "—" : (item.change_pct > 0 ? "+" : "")+fmt.format(item.change_pct)+"%";
+      delta.title = "Заказано за предыдущий период: "+rub.format(item.previous_rub)+" ₽";
+    }
+    $("more").hidden = result.rows.length <= 8;
+    $("more").textContent = shown === 8 ? "Показать ещё "+(result.rows.length-8) : "Свернуть";
+    if (result.total > result.rows.length) {
+      message.hidden = false;
+      message.textContent = "В отчёте "+result.rows.length+" из "+result.total+" товаров. Уточни SKU или название в чате.";
+    }
+  }
+  $("more").onclick = () => { shown = shown === 8 ? data.markets[market].rows.length : 8; render(); };
+  window.addEventListener("message", event => {
+    if (event.source !== host) return;
+    const rpc = event.data;
+    if (rpc?.jsonrpc !== "2.0") return;
+    if (rpc.id === 1 && rpc.result) emit("ui/notifications/initialized");
+    if (rpc.method === "ui/resource-teardown" && rpc.id !== undefined)
+      host.postMessage({jsonrpc:"2.0",id:rpc.id,result:{}},"*");
+    if (rpc.method !== "ui/notifications/tool-result") return;
+    const payload = rpc.params?.structuredContent;
+    if (!payload?.markets || !Object.keys(payload.markets).length) {
+      $("period").textContent = "Данные отчёта недоступны.";
+      return;
+    }
+    data = payload;
+    market = Object.keys(data.markets).find(name => data.markets[name].status === "ok") || Object.keys(data.markets)[0];
+    shown = 8;
+    render();
+  });
+  if (host !== window) {
+    emit("ui/initialize",{appInfo:{name:"РНП по товарам",version:"1.0.0"},
+         appCapabilities:{},protocolVersion:"2026-01-26"},1);
+    const notifySize = () => emit("ui/notifications/size-changed",{height:document.body.scrollHeight});
+    new ResizeObserver(notifySize).observe(document.body);
+  }
+})();
+</script>
+</html>

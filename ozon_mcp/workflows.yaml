@@ -39,17 +39,27 @@ workflows:
     category: finance
     when_to_use: Understand real per-order profitability after Ozon fees.
     steps:
-      - operation_id: ozon_finance_transactions
-        why: Per-order accruals, commissions, logistics, returns (result.operations).
+      - operation_id: ozon_finance_accrual_by_day
+        why: Daily accruals with signed total_amount, commission and fee components.
       - operation_id: ozon_prices_get
         why: Per-SKU commission percentages and current prices.
     interpret: >
-      Net = sale amount − sales commission − logistics − returns − ads. Pull one
-      month at a time (API caps the window). Join transactions to SKU via
-      posting_number. Watch fbo vs fbs commission differences.
+      Use realized sales, not analytics revenue (which is ordered amount).
+      Preserve signed total_amount.amount and its currency. Its components
+      (commission, delivery, item/non-item/container fees) are already included:
+      never add or subtract them again. Request each source date sequentially,
+      follow last_id until empty, and keep the date unchanged within one walk.
+      Do not use the retired v3 transaction/list or transaction/totals methods.
+      Reconcile accruals with a matching cabinet export before final conclusions.
+      Multi-SKU and non-item costs need explicit allocation; show unallocated costs.
+      The accrual balance is NOT profit. Subtract cost of goods, taxes, external
+      expenses and advertising only when not already included.
+      Missing costs are unknown, not zero; do not report net profit without them.
     common_mistakes:
       - Requesting more than one month per call (API rejects it).
       - Forgetting returns and storage fees in the net.
+      - Calling the marketplace balance profit without cost of goods and taxes.
+      - Subtracting operation components or advertising twice.
 
   - name: catalog_sync
     category: catalog
@@ -88,6 +98,7 @@ workflows:
       - operation_id: ozon_analytics_data
         why: Revenue and ordered units per SKU over a period (offset pagination).
     interpret: >
+      This is ABC by ordered amount, not realized revenue or profit.
       Request metrics ["revenue","ordered_units"] with dimension ["sku"]. Sum
       revenue per sku, sort descending, take cumulative share: A = top 80%,
       B = next 15%, C = last 5%. Window is capped — pull one period at a time.

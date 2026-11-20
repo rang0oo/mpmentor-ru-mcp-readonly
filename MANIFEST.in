@@ -4,3 +4,4 @@ recursive-include wb_mcp *.yaml
 recursive-include ozon_mcp *.yaml
 recursive-include ozon_perf_mcp *.yaml
 include README.md
+recursive-include readonly_mcp *.html SKILL.md

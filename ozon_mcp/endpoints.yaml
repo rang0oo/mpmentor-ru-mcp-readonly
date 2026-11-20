@@ -416,36 +416,6 @@ endpoints:
   - дни запаса
   pagination: offset
   items_path: items
-- operation_id: ozon_finance_transactions
-  section: finance
-  method: POST
-  host: api-seller.ozon.ru
-  path: /v3/finance/transaction/list
-  scope: seller
-  safety: read
-  pagination: page
-  summary: Detailed financial transactions (<=1 month/req). v3.
-  params:
-    body: '{filter:{date:{from,to}, operation_type:[]}, page, page_size}'
-  doc: https://docs.ozon.ru/api/seller/
-  keywords:
-  - финансы
-  - транзакции
-  - начисления
-  - деньги
-  items_path: result.operations
-- operation_id: ozon_finance_totals
-  section: finance
-  method: POST
-  host: api-seller.ozon.ru
-  path: /v3/finance/transaction/totals
-  scope: seller
-  safety: read
-  summary: Aggregated financial totals for a period. v3.
-  params:
-    body: '{date:{from,to}, transaction_type}'
-  doc: https://docs.ozon.ru/api/seller/
-  pagination: none
 - operation_id: ozon_finance_realization
   section: finance
   method: POST
@@ -2543,7 +2513,10 @@ endpoints:
   safety: read
   summary: Get finance accruals grouped by day.
   doc: https://docs.ozon.ru/api/seller/
-  pagination: none
+  pagination: last_id
+  items_path: accruals
+  params:
+    body: '{date: YYYY-MM-DD, last_id: ""}'
 - operation_id: ozon_finance_accrual_postings
   section: finance
   method: POST

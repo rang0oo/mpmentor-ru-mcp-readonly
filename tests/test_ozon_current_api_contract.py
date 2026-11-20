@@ -87,3 +87,11 @@ def test_typed_fbs_tool_uses_current_catalog_entry():
 
     assert fbs["path"] == "/v4/posting/fbs/unfulfilled/list"
     assert fbs["safety"] == "read"
+
+
+def test_retired_transaction_methods_are_removed_and_daily_accruals_are_paginated():
+    endpoints = _catalog('ozon_mcp/endpoints.yaml')
+    assert not any(entry['path'].startswith('/v3/finance/transaction/') for entry in endpoints)
+    daily = next(entry for entry in endpoints if entry['operation_id'] == 'ozon_finance_accrual_by_day')
+    assert daily['pagination'] == 'last_id'
+    assert daily['items_path'] == 'accruals'

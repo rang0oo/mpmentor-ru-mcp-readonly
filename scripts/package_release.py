@@ -33,6 +33,8 @@ INCLUDE_DIRS = [
     "wb_mcp",
     "ozon_mcp",
     "ozon_perf_mcp",
+    "readonly_mcp",
+    "skills/marketplaces-readonly",
     "yandex_mcp",
     "avito_mcp",
     "install-skill",   # optional — added by another agent; skipped if absent
@@ -47,6 +49,9 @@ INCLUDE_FILES = [
     "QUICKSTART.md",
     "LICENSE",
     "pyproject.toml",
+    "MANIFEST.in",
+    "API_STATUS.md",
+    "docs/ANALYTICS_ACCURACY.md",
 ]
 
 # What can never go IN — defense-in-depth denylist applied per file even inside
@@ -194,11 +199,30 @@ def build(list_contents: bool) -> Path:
     return zip_path
 
 
+def build_skill(dist: Path | None = None) -> Path:
+    """Build the two-file buyer bootstrap independently from the server release."""
+    dist = dist or ROOT / 'dist'
+    dist.mkdir(parents=True, exist_ok=True)
+    result = dist / 'mpmentor-marketplaces-readonly.zip'
+    base = ROOT / 'skills' / 'marketplaces-readonly'
+    files = [base / 'SKILL.md', base / 'scripts' / 'install.py']
+    assert_clean(files)
+    with zipfile.ZipFile(result, 'w', zipfile.ZIP_DEFLATED) as archive:
+        for path in files:
+            payload = path.read_bytes()
+            if b'/Users/' in payload or b'WBOZON Agent' in payload:
+                raise RuntimeError('Personal paths are not allowed in the buyer skill')
+            archive.write(path, 'marketplaces-readonly/' + path.relative_to(base).as_posix())
+    print(f'Built buyer skill: {result.name} ({result.stat().st_size} bytes)')
+    return result
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--list", action="store_true", help="list archive contents after build")
     args = ap.parse_args()
     build(args.list)
+    build_skill()
 
 
 if __name__ == "__main__":

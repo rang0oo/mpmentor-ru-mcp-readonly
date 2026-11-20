@@ -9,7 +9,7 @@ def test_gateway_has_only_allowlisted_tools():
     gateway = build()
     names = set(gateway._tool_manager._tools)
     assert names == READ_ONLY_TOOLS
-    assert len(names) == 45
+    assert len(names) == 50
     assert "wb_get_fbs_stocks" in names
     assert not any(
         part in name
