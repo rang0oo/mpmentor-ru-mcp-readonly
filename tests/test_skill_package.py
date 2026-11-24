@@ -43,6 +43,25 @@ def test_bootstrap_downloads_from_mpmentor_repository():
     assert "rang0oo/marketplaces-mcp-ru-readonly" not in text
 
 
+def test_bootstrap_prefers_bundled_server_without_download(tmp_path, monkeypatch):
+    import zipfile
+    namespace = runpy.run_path(str(BOOTSTRAP), run_name='bootstrap_test')
+    script = tmp_path / 'scripts' / 'install.py'
+    script.parent.mkdir()
+    bundled = tmp_path / 'assets' / 'server.zip'
+    bundled.parent.mkdir()
+    with zipfile.ZipFile(bundled, 'w') as archive:
+        archive.writestr('server/install.py', '# installer stub')
+    namespace['main'].__globals__['__file__'] = str(script)
+    monkeypatch.delenv('MARKETPLACES_MCP_ARCHIVE_URL', raising=False)
+    monkeypatch.setattr('urllib.request.urlretrieve', lambda *a: pytest.fail('Unexpected download'))
+    calls = []
+    monkeypatch.setattr('subprocess.run', lambda *a, **kw: calls.append((a, kw)))
+    namespace['main']()
+    assert len(calls) == 1
+    assert calls[0][1]['check'] is True
+
+
 @pytest.mark.parametrize('name', ['C:/outside.py', 'C:outside.py', '..\\outside.py',
                                  'repo/..\\outside.py', '//host/share/file', 'repo/\x00file'])
 def test_bootstrap_rejects_windows_and_invalid_paths(name):

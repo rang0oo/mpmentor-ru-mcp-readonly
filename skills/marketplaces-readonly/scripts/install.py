@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import shutil
 import stat
 import subprocess
 import sys
@@ -13,7 +14,7 @@ from pathlib import Path, PurePosixPath
 
 DEFAULT_ARCHIVE = (
     "https://github.com/rang0oo/mpmentor-ru-mcp-readonly/"
-    "archive/refs/heads/main.zip"
+    "archive/refs/tags/v0.3.0.zip"
 )
 
 
@@ -29,8 +30,13 @@ def main() -> None:
     with tempfile.TemporaryDirectory(prefix="marketplaces-readonly-") as temp:
         temp_path = Path(temp)
         archive = temp_path / "source.zip"
-        print("Downloading the read-only marketplace integration…")
-        urllib.request.urlretrieve(archive_url, archive)
+        bundled = Path(__file__).resolve().parents[1] / 'assets' / 'server.zip'
+        if bundled.is_file() and not os.environ.get('MARKETPLACES_MCP_ARCHIVE_URL'):
+            print('Using the bundled read-only marketplace integration…')
+            shutil.copyfile(bundled, archive)
+        else:
+            print("Downloading the read-only marketplace integration…")
+            urllib.request.urlretrieve(archive_url, archive)
         with zipfile.ZipFile(archive) as package:
             members = package.infolist()
             unsafe = [item.filename for item in members

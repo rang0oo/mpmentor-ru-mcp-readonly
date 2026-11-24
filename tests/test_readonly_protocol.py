@@ -25,7 +25,9 @@ def test_stdio_protocol_lists_only_read_tools(monkeypatch, tmp_path):
                 await session.initialize()
                 tools = {tool.name: tool for tool in (await session.list_tools()).tools}
                 names = set(tools)
-                assert len(names) == 50
+                assert len(names) == 58
+                assert tools['save_business_settings'].annotations.readOnlyHint is False
+                assert tools['save_business_settings'].annotations.openWorldHint is False
                 report = tools["get_product_rnp"]
                 assert report.annotations.readOnlyHint
                 uri = report.meta["ui"]["resourceUri"]

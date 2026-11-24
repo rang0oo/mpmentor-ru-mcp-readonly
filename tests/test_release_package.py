@@ -25,3 +25,14 @@ def test_skill_zip_is_minimal_and_portable(tmp_path, monkeypatch):
         assert archive.testzip() is None
         for name in archive.namelist():
             assert b'/Users/' not in archive.read(name)
+
+
+def test_skill_can_bundle_exact_server_archive(tmp_path):
+    import zipfile
+    server = tmp_path / 'server.zip'
+    with zipfile.ZipFile(server, 'w') as archive:
+        archive.writestr('server/install.py', '# checked fixture')
+    result = release.build_skill(tmp_path, server_archive=server)
+    with zipfile.ZipFile(result) as archive:
+        assert archive.testzip() is None
+        assert archive.read('marketplaces-readonly/assets/server.zip') == server.read_bytes()

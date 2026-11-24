@@ -8,6 +8,30 @@ from typing import Literal
 
 
 CONTRACTS = {
+    ('wb', 'get_product_rnp'): {
+        'source': 'https://dev.wildberries.ru/openapi/reports',
+        'fields': {
+            'units': ('Заказанные товары по воронке', 'шт', 'Не выкупы; дата заказа.'),
+            'buyouts': ('Продажи Statistics с saleID S', 'шт', 'Дата продажи, не когорта заказов недели.'),
+            'returns': ('Возвраты Statistics с saleID R', 'шт', 'Дата возврата; не отказы.'),
+            'realized_rub': ('Продажи минус возвраты по priceWithDisc', 'RUB', 'До СПП, оперативные данные.'),
+            'advertising_rub': ('Расход fullstats', 'RUB', 'Без медийной рекламы. null при неполном распределении на SKU.'),
+            'drr_in_orders': ('Расход / сумма заказов × 100', '%', 'Итог из сумм; при неположительной базе null.'),
+            'drr_in_sales': ('Расход / выручка после возвратов × 100', '%', 'База до СПП. Не процент выкупа.'),
+        },
+    },
+    ('ozon', 'get_product_rnp'): {
+        'source': 'https://docs.ozon.ru/api/seller/',
+        'fields': {
+            'units': ('Заказанные товары analytics/data', 'шт', 'Дата заказа, не дата начисления.'),
+            'buyouts': ('Количество в положительных sale_amount начислениях', 'шт', 'Предварительно по дате начисления; не закрывающая реализация.'),
+            'returns': ('Количество в отрицательных sale_amount начислениях', 'шт', 'Возвратные начисления, не отказы.'),
+            'realized_rub': ('Сумма commission.sale_amount с сохранением знака', 'RUB', 'По дате начисления, оперативная выручка продавца.'),
+            'advertising_rub': ('Выбранные виды продвижения из начислений', 'RUB', 'Не Performance и не гарантированно категория MPSTATS. Без SKU — нераспределённо.'),
+            'drr_in_orders': ('Продвижение / сумма заказов × 100', '%', 'Разные базы дат. При неполном распределении SKU null.'),
+            'drr_in_sales': ('Продвижение / выручка начислений × 100', '%', 'Предварительно; при неположительной базе null.'),
+        },
+    },
     ('ozon', 'ozon_analytics_data'): {
         'source': 'https://dev.ozon.ru/news/252-Izmeneniia-v-rabote-metoda-v1-analytics-data/',
         'fields': {

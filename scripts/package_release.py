@@ -52,6 +52,9 @@ INCLUDE_FILES = [
     "MANIFEST.in",
     "API_STATUS.md",
     "docs/ANALYTICS_ACCURACY.md",
+    "docs/BUSINESS_METHODOLOGY.md",
+    "docs/BUSINESS_ANALYTICS_PLAN.md",
+    "CHANGELOG.md",
 ]
 
 # What can never go IN — defense-in-depth denylist applied per file even inside
@@ -199,8 +202,8 @@ def build(list_contents: bool) -> Path:
     return zip_path
 
 
-def build_skill(dist: Path | None = None) -> Path:
-    """Build the two-file buyer bootstrap independently from the server release."""
+def build_skill(dist: Path | None = None, server_archive: Path | None = None) -> Path:
+    """Build the buyer skill, optionally bundling the checked server release."""
     dist = dist or ROOT / 'dist'
     dist.mkdir(parents=True, exist_ok=True)
     result = dist / 'mpmentor-marketplaces-readonly.zip'
@@ -213,6 +216,8 @@ def build_skill(dist: Path | None = None) -> Path:
             if b'/Users/' in payload or b'WBOZON Agent' in payload:
                 raise RuntimeError('Personal paths are not allowed in the buyer skill')
             archive.write(path, 'marketplaces-readonly/' + path.relative_to(base).as_posix())
+        if server_archive is not None:
+            archive.write(server_archive, 'marketplaces-readonly/assets/server.zip')
     print(f'Built buyer skill: {result.name} ({result.stat().st_size} bytes)')
     return result
 
@@ -221,8 +226,8 @@ def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--list", action="store_true", help="list archive contents after build")
     args = ap.parse_args()
-    build(args.list)
-    build_skill()
+    server_archive = build(args.list)
+    build_skill(server_archive=server_archive)
 
 
 if __name__ == "__main__":

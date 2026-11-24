@@ -6,17 +6,21 @@
 <style>
 :root{color-scheme:light dark;font:14px system-ui;--muted:light-dark(#5b6067,#b4bac2);--line:light-dark(#dde1e6,#42464e);--active:light-dark(#20252b,#edf0f5);--active-ink:light-dark(#fff,#20252b)}
 body{margin:0;padding:.75rem;display:grid;gap:.65rem}h1,p{margin:0}h1{font-size:1.25rem}p,small{color:var(--muted)}#markets{display:flex;gap:.4rem}button{font:inherit;color:inherit;border:1px solid var(--line);background:transparent;border-radius:.65rem;padding:.4rem .7rem;cursor:pointer}button[aria-pressed=true]{background:var(--active);color:var(--active-ink)}
-table{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums}th,td{text-align:right;border-bottom:1px solid var(--line);padding:.45rem .3rem;vertical-align:top}th:first-child,td:first-child{text-align:left;overflow-wrap:anywhere}td:not(:first-child){white-space:nowrap}thead{color:var(--muted)}th{font-weight:550}td small{display:block}#more{justify-self:start}[hidden]{display:none}
+.table-scroll{max-width:100%;overflow-x:auto}table{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums}th,td{text-align:right;border-bottom:1px solid var(--line);padding:.45rem .3rem;vertical-align:top}th:first-child,td:first-child{text-align:left;overflow-wrap:anywhere;min-width:10rem}td:not(:first-child){white-space:nowrap}thead{color:var(--muted)}th{font-weight:550}td small{display:block}#more{justify-self:start}[hidden]{display:none}#summary{display:flex;flex-wrap:wrap;gap:1rem}#summary span{display:block}#quality{white-space:pre-line}
 @media(max-width:350px){body{padding:.35rem}th,td{padding-inline:.2rem}}
 </style>
 <h1>РНП по товарам</h1>
 <p id="period" role="status">Загрузка отчёта…</p>
 <div id="markets" role="group" aria-label="Площадка" hidden></div>
 <p id="message" hidden></p>
+<div id="summary" role="status" hidden></div>
+<p id="quality" hidden></p>
+<div class="table-scroll">
 <table id="report" hidden>
-<thead><tr><th scope="col">Товар</th><th scope="col">Шт.</th><th scope="col">Заказы, ₽</th><th scope="col">Динамика</th></tr></thead>
+<thead><tr><th scope="col">Товар</th><th scope="col">Заказы, шт.</th><th scope="col">Заказы, ₽</th><th scope="col">Динамика</th><th scope="col">Выкупы, шт.</th><th scope="col">Возвраты, шт.</th><th scope="col">Продвижение, ₽</th><th scope="col">ДРР заказов</th><th scope="col">ДРР продаж</th></tr></thead>
 <tbody></tbody>
 </table>
+</div>
 <button id="more" type="button" hidden></button>
 <script>
 (() => {
@@ -24,11 +28,35 @@ table{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums}th,t
   const host = window.parent;
   const fmt = new Intl.NumberFormat("ru-RU",{maximumFractionDigits:1});
   const rub = new Intl.NumberFormat("ru-RU",{maximumFractionDigits:2});
+  const number = (value, suffix='') => value == null ? '—' : rub.format(Number(value))+suffix;
   const date = s => s.split("-").reverse().join(".");
   const emit = (method, params, id) => host.postMessage({jsonrpc:"2.0",method,params,id},"*");
   let data, market, shown = 8;
   function render() {
     const result = data.markets[market];
+    const summary = $("summary");
+    summary.replaceChildren();
+    summary.hidden = !result.summary;
+    if (result.summary) {
+      for (const [key,label,suffix] of [['units','Заказы, шт.',''],['buyouts','Выкупы, шт.',''],
+        ['returns','Возвраты, шт.',''],['advertising_rub','Продвижение',' ₽'],
+        ['drr_in_orders','ДРР заказов','%'],['drr_in_sales','ДРР продаж','%']]) {
+        const item=document.createElement('div');
+        item.textContent=label;
+        const value=document.createElement('span');
+        value.textContent=number(result.summary[key],suffix);
+        item.append(value); summary.append(item);
+      }
+    }
+    const quality=[];
+    if (result.sources) {
+      quality.push(market==='Ozon' ? 'Продажи Ozon — предварительные, по дате начисления. Продвижение — выбранные рекламные статьи начислений.' : 'Выкупы WB — по дате продажи. Выручка до СПП. Реклама fullstats, без медийной.');
+      quality.push('Итоги — весь кабинет до поиска и ограничения строк. Выкупы могут относиться к заказам прошлых недель.');
+      if (result.economics_status==='partial') quality.push('Часть источников недоступна. Неизвестные значения показаны прочерком.');
+      if (!result.advertising_allocation_complete) quality.push('Расходы распределены не полностью: ДРР по товарам не определён. Нераспределённое продвижение: '+number(result.summary.unallocated_advertising_rub,' ₽'));
+    }
+    $("quality").textContent=quality.join('\n');
+    $("quality").hidden=!quality.length;
     $("period").textContent = date(data.start)+"–"+date(data.end)+" · к "+date(data.previous_start)+"–"+date(data.previous_end);
     const nav = $("markets");
     nav.replaceChildren();
@@ -64,6 +92,8 @@ table{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums}th,t
       const delta = row.insertCell();
       delta.textContent = item.change_pct == null ? "—" : (item.change_pct > 0 ? "+" : "")+fmt.format(item.change_pct)+"%";
       delta.title = "Заказано за предыдущий период: "+rub.format(item.previous_rub)+" ₽";
+      for (const [key,suffix] of [['buyouts',''],['returns',''],['advertising_rub',''],
+        ['drr_in_orders','%'],['drr_in_sales','%']]) row.insertCell().textContent=number(item[key],suffix);
     }
     $("more").hidden = result.rows.length <= 8;
     $("more").textContent = shown === 8 ? "Показать ещё "+(result.rows.length-8) : "Свернуть";

@@ -1,11 +1,12 @@
 """Compact order pulse by marketplace SKU."""
 import asyncio
 import logging
+import sqlite3
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal, InvalidOperation
-from typing import Literal
+from typing import Annotated, Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from ozon_mcp import server as ozon_server
 from wb_mcp import server as wb_server
@@ -56,8 +57,9 @@ def metric(value):
 
 
 async def wb_rows(request, start, end):
+    duration=end-start+DAY
     body = {"selectedPeriod": {"start": str(start), "end": str(end)},
-            "pastPeriod": {"start": str(start - 7 * DAY), "end": str(start - DAY)},
+            "pastPeriod": {"start": str(start - duration), "end": str(start - DAY)},
             "skipDeletedNm": False, "orderBy": {"field": "orderSum", "mode": "desc"}}
 
     def unpack(result):
@@ -79,7 +81,8 @@ async def wb_rows(request, start, end):
 
 
 async def ozon_rows(request, start, end):
-    body = {"date_from": str(start - 7 * DAY), "date_to": str(end),
+    duration=end-start+DAY
+    body = {"date_from": str(start - duration), "date_to": str(end),
             "metrics": ["ordered_units", "revenue"], "dimension": ["sku", "day"],
             "sort": [{"key": "revenue", "order": "DESC"}]}
     rows = {}
@@ -91,7 +94,7 @@ async def ozon_rows(request, start, end):
             if (sku, day) in seen:
                 raise SourceError("Повтор SKU и даты в выгрузке Ozon")
             seen.add((sku, day))
-            if not start - 7 * DAY <= day <= end:
+            if not start - duration <= day <= end:
                 raise SourceError("Дата вне запрошенного окна Ozon")
             bucket = rows.setdefault(sku, [sku, "", product["name"], 0, 0, 0, 0])
             qty, amount = map(metric, row["metrics"])
@@ -121,12 +124,35 @@ def display_rows(rows, query, limit):
             "warning": "Сумма заказов не является продажами, выплатой или прибылью."}
 
 
-async def report(market, query, limit, end, wb=None, ozon=None):
-    start = end - 6 * DAY
+async def report(market, query, limit, end, wb=None, ozon=None, include_economics=False,
+                 start_date=None):
+    start = start_date or end - 6 * DAY
+    if start>end or (end-start).days>=31:
+        raise ValueError('Период от 1 до 31 дня')
+    duration=end-start+DAY
 
-    async def collect(fetch, request):
+    async def collect(name, fetch, request):
         try:
-            return display_rows(await fetch(request, start, end), query, limit)
+            raw = await fetch(request, start, end)
+            if not include_economics:
+                return display_rows(raw, query, limit)
+            from readonly_mcp.rnp_economics import combine, fetch_economics
+            orders = display_rows(raw, None, 200_000)
+            sales, ads = await fetch_economics(name, start, end,
+                                             skus=[row['sku'] for row in orders['rows']])
+            enriched = combine(orders['rows'], sales, ads)
+            term = (query or '').strip().casefold()
+            filtered = [row for row in enriched['rows'] if not term or any(
+                term in str(row.get(key, '')).casefold() for key in ('sku', 'article', 'name'))]
+            filtered.sort(key=lambda row: (-row['ordered_rub'], row['sku']))
+            server = wb_server if name == 'WB' else ozon_server
+            cabinet = server.client.config.store.list_cabinets(server.client.config.name).get('active')
+            return {**orders, **enriched, 'rows': filtered[:limit], 'total': len(filtered),
+                    'cabinet': cabinet or 'environment credentials',
+                    'retrieved_at': datetime.now(timezone.utc).isoformat(),
+                    'display_truncated': len(filtered) > limit,
+                    'summary_scope': 'all products in active cabinet, before query and display limit',
+                    'economics_status': 'ok' if sales['status'] == ads['status'] == 'ok' else 'partial'}
         except SourceError as exc:
             return {"status": "unavailable", "message": str(exc), "rows": []}
         except (KeyError, ValueError, TypeError, InvalidOperation):
@@ -138,8 +164,8 @@ async def report(market, query, limit, end, wb=None, ozon=None):
         markets["WB"] = (wb_rows, wb or source(wb_server, "wb_analytics_funnel"))
     if market in ("all", "ozon"):
         markets["Ozon"] = (ozon_rows, ozon or source(ozon_server, "ozon_analytics_data"))
-    results = await asyncio.gather(*(collect(*m) for m in markets.values()))
-    return {"start": str(start), "end": str(end), "previous_start": str(start - 7 * DAY),
+    results = await asyncio.gather(*(collect(name, *m) for name, m in markets.items()))
+    return {"start": str(start), "end": str(end), "previous_start": str(start - duration),
             "previous_end": str(start - DAY), "markets": dict(zip(markets, results))}
 
 
@@ -152,13 +178,39 @@ class ProductReport(BaseModel):
 
 
 async def get_product_rnp(market: Market = "all", query: str | None = None,
-                          limit: int = 30, end_date: date | None = None) -> ProductReport:
-    """РНП по товарам WB/Ozon. Показывает заказы в штуках и рублях по SKU,
-    за 7 завершённых дней МСК и изменение к предыдущим 7 дням.
-    query фильтрует SKU, артикул продавца WB или название.
+                          limit: Annotated[int, Field(ge=1, le=1000)] = 100,
+                          end_date: date | None = None,
+                          include_economics: bool = True,
+                          start_date: date | None = None) -> ProductReport:
+    """РНП WB/Ozon за 7 завершённых дней МСК и сравнение с предыдущими 7.
+
+    Заказы, выкупы, возвраты, реклама и ДРР заказов/продаж по SKU и кабинету.
+    WB: продажи Statistics по дате продажи, реклама fullstats (без медийной).
+    Ozon: предварительные продажи и выбранные виды продвижения по дате начисления;
+    не окончательная реализация, не Performance и не прогноз MPSTATS.
+    sources содержит базы дат и предупреждения. Неизвестное — null, не ноль.
+    summary — весь кабинет до query/limit; limit 1..1000 ограничивает показ.
+    start_date задаёт начало периода (1..31 закрытый день); без него — 7 дней.
+    include_economics=False — только заказы. Прибыль не рассчитывается.
     """
     today = datetime.now(MSK).date()
     end = end_date or today - DAY
-    if not 1 <= limit <= 100 or end >= today:
-        raise ValueError("Лимит от 1 до 100. Дата окончания должна быть раньше сегодняшней по МСК.")
-    return ProductReport(**await report(market, query, limit, end))
+    if not 1 <= limit <= 1000 or end >= today:
+        raise ValueError("Лимит от 1 до 1000. Дата окончания должна быть раньше сегодняшней по МСК.")
+    payload=await report(market, query, limit, end,
+                         include_economics=include_economics,start_date=start_date)
+    from readonly_mcp.business_settings import get_business_settings
+    for name,data in payload['markets'].items():
+        if data.get('status')!='ok':
+            continue
+        data['order_source']={'operation_id':'wb_analytics_funnel' if name=='WB' else 'ozon_analytics_data',
+                              'date_basis':'order_date','currency':'RUB'}
+        articles=sorted({row['article'] for row in data['rows'] if row.get('article')})
+        try:
+            data['business_inputs']=get_business_settings('wb' if name=='WB' else 'ozon',
+                                                         articles=articles,on_date=str(end))
+            data['business_inputs']['missing_article_skus']=[row['sku'] for row in data['rows']
+                                                             if not row.get('article')]
+        except (ValueError,OSError,sqlite3.Error):
+            data['business_inputs']={'status':'unavailable','profit':None}
+    return ProductReport(**payload)
